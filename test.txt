@@ -1,0 +1,118 @@
+import streamlit as st
+import requests
+import time
+import json
+
+st.set_page_config(page_title="Nutritionist Chatbot", page_icon="🥗", layout="wide")
+
+# -- Session state initialization --
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Track the number of calls (queries) made
+if "num_calls" not in st.session_state:
+    st.session_state.num_calls = 0
+
+# Track token usage (placeholders if your API does not provide actual usage)
+if "total_input_tokens" not in st.session_state:
+    st.session_state.total_input_tokens = 0
+if "total_output_tokens" not in st.session_state:
+    st.session_state.total_output_tokens = 0
+
+# ------------------------------
+# MAIN PAGE LAYOUT
+# ------------------------------
+st.title("🥗 Your AI Nutritionist")
+
+# Display existing chat messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+
+# User input
+if prompt := st.chat_input("Ask me about nutrition..."):
+    # Increase the call count
+    st.session_state.num_calls += 1
+
+    # (Optional) Approximate input token count by splitting on whitespace
+    # or use an actual tokenizer if you want more accurate measurement
+    input_token_count = len(prompt.split())
+    st.session_state.total_input_tokens += input_token_count
+
+    # Display user message
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    # Prepare assistant message container
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+
+        try:
+            # Stream request to your Flask backend
+            with requests.post(
+                "http://127.0.0.1:5000/query",
+                json={"input": prompt},
+                stream=True
+            ) as r:
+                for line in r.iter_lines():
+                    if line:
+                        if line.startswith(b'data: '):
+                            # Extract chunk text
+                            chunk = line[6:].decode('utf-8', errors='ignore')
+                            
+                            # OPTIONAL: Adjust spacing or newlines so Markdown renders nicely.
+                            # For example, replace single newlines with double newlines:
+                            chunk = chunk.replace("\n", "\n\n")
+                            
+                            # Accumulate chunk into the full response
+                            full_response += chunk
+                            
+                            # Display with a blinking cursor
+                            response_placeholder.markdown(full_response + "▌")
+                            time.sleep(0.01)
+
+                # Remove the cursor and finalize the displayed response
+                response_placeholder.markdown(full_response)
+
+                # (Optional) Approximate output token count
+                output_token_count = len(full_response.split())
+                st.session_state.total_output_tokens += output_token_count
+
+                # Save the assistant message
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
+# ------------------------------
+# SIDEBAR / RIGHT PANEL
+# ------------------------------
+st.sidebar.header("Session Info")
+st.sidebar.markdown(f"**Number of calls:** {st.session_state.num_calls}")
+
+# If your API or model returns actual token usage, you can display them here
+st.sidebar.markdown(f"**Total input tokens:** {st.session_state.total_input_tokens}")
+st.sidebar.markdown(f"**Total output tokens:** {st.session_state.total_output_tokens}")
+
+# You could also show tokens per request or a running total. Adjust as desired.
+
+# Add some custom CSS for styling
+st.markdown(
+    """
+    <style>
+    /* Example chat message styling */
+    .stChat {
+        padding: 20px;
+    }
+    .stChatMessage {
+        background-color: #f0f2f6;
+        border-radius: 15px;
+        padding: 10px;
+        margin: 5px 0;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
